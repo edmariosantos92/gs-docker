@@ -22,7 +22,7 @@ Tudo roda no seu notebook usando **Docker Compose**:
 > - API em `/api/*`;
 > - Sem checkout e sem carrinho.
 
----
+
 
 ## 1) Arquitetura do LAB local
 
@@ -60,7 +60,7 @@ App -> Redis cache miss -> Elasticsearch -> salva no Redis -> resposta source=el
 App -> Redis cache hit -> resposta source=redis-cache
 ```
 
----
+
 
 ## 2) Recursos locais que vamos usar
 
@@ -82,7 +82,7 @@ App -> Redis cache hit -> resposta source=redis-cache
 ### Portas no host
 
 | Serviço | Porta no host | Porta no container |
-|---|---:|---:|
+||:|:|
 | App Node.js | `8080` | `3000` |
 | MySQL | `3307` | `3306` |
 | Redis | `6379` | `6379` |
@@ -90,7 +90,7 @@ App -> Redis cache hit -> resposta source=redis-cache
 
 > Se alguma porta já estiver em uso no seu notebook, altere no arquivo `.env`.
 
----
+
 
 ## 3) Estrutura do projeto
 
@@ -130,7 +130,7 @@ lab-nodejs-local-docker/
 └── README.md
 ```
 
----
+
 
 ## 4) Pré-requisitos
 
@@ -165,7 +165,7 @@ echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-elasticsearch.conf
 sudo sysctl --system
 ```
 
----
+
 
 ## 5) Variáveis de ambiente
 
@@ -206,7 +206,7 @@ ELASTICSEARCH_INDEX=products
 MEDIA_DIR=/app/public/media
 ```
 
----
+
 
 ## 6) Subindo o lab local
 
@@ -248,7 +248,7 @@ Ver logs apenas do Elasticsearch:
 docker compose logs -f elasticsearch
 ```
 
----
+
 
 ## 7) Acessando o site
 
@@ -269,7 +269,7 @@ http://localhost:8080/login
 http://localhost:8080/status
 ```
 
----
+
 
 ## 8) Testes de saúde
 
@@ -310,7 +310,7 @@ Exemplo esperado:
 }
 ```
 
----
+
 
 ## 9) Testando API de produtos
 
@@ -326,7 +326,7 @@ Buscar produto por slug:
 curl -s http://localhost:8080/api/products/fone-bluetooth-pro | jq
 ```
 
----
+
 
 ## 10) Verificando as mídias via Docker volume
 
@@ -356,7 +356,7 @@ Ou por `curl`:
 curl -I http://localhost:8080/media/products/fone-bluetooth-pro.jpg
 ```
 
----
+
 
 ## 11) Reindexando produtos no Elasticsearch
 
@@ -386,7 +386,7 @@ Verificar índice no Elasticsearch:
 curl -s http://localhost:9200/products/_search | jq
 ```
 
----
+
 
 ## 12) Testando busca + cache
 
@@ -437,8 +437,6 @@ Limpar cache Redis e repetir o teste:
 docker compose exec redis redis-cli FLUSHALL
 ```
 
----
-
 ## 13) Cadastro e login
 
 ### Pela interface web
@@ -475,7 +473,7 @@ curl -s -X POST http://localhost:8080/api/login \
   -d '{"email":"paulo@example.com","password":"123456"}' | jq
 ```
 
----
+
 
 ## 14) Acessando MySQL local
 
@@ -498,7 +496,7 @@ docker compose exec mysql mysql -u labnodejs_user -plabnodejs_pass labnodejs \
   -e "SELECT id, sku, name, price FROM products;"
 ```
 
----
+
 
 ## 15) Acessando Redis local
 
@@ -524,7 +522,7 @@ Limpar tudo:
 docker compose exec redis redis-cli FLUSHALL
 ```
 
----
+
 
 ## 16) Acessando Elasticsearch local
 
@@ -558,7 +556,7 @@ Depois rode:
 docker compose exec app npm run reindex:elasticsearch
 ```
 
----
+
 
 ## 17) Comandos úteis de operação
 
@@ -616,7 +614,7 @@ Subir novamente mantendo dados:
 docker compose up -d
 ```
 
----
+
 
 ## 18) Reset completo do lab local
 
@@ -640,7 +638,7 @@ docker compose up -d --build
 
 > Atenção: usando `-v`, os dados do MySQL, Redis, Elasticsearch e mídias serão apagados.
 
----
+
 
 ## 19) Troubleshooting
 
@@ -727,28 +725,10 @@ Depois:
 docker compose up -d
 ```
 
----
-
-## 20) Resumo para aula
-
-Este lab demonstra, em ambiente local:
-
-```text
-Dockerfile multi-stage
-Docker Compose com múltiplos serviços
-App Node.js containerizada
-MySQL em container
-Redis como cache
-Elasticsearch como motor de busca
-Docker volume para persistir mídias
-Healthcheck e readiness
-Troubleshooting com logs, exec, ps e stats
-```
-
-Diferença para a versão AWS:
+## 20) Diferença para a versão AWS:
 
 | Recurso no lab AWS | Recurso neste lab local |
-|---|---|
+|||
 | EC2 Ubuntu | Host local/notebook |
 | RDS MySQL | MySQL container |
 | ElastiCache Valkey | Redis container |
