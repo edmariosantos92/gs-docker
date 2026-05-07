@@ -82,7 +82,7 @@ App -> Redis cache hit -> resposta source=redis-cache
 ### Portas no host
 
 | Serviço | Porta no host | Porta no container |
-||:|:|
+|---|---:|---:|
 | App Node.js | `8080` | `3000` |
 | MySQL | `3307` | `3306` |
 | Redis | `6379` | `6379` |
@@ -727,8 +727,10 @@ docker compose up -d
 
 ## 20) Diferença para a versão AWS:
 
+## Comparativo: lab AWS vs lab local
+
 | Recurso no lab AWS | Recurso neste lab local |
-|||
+|---|---|
 | EC2 Ubuntu | Host local/notebook |
 | RDS MySQL | MySQL container |
 | ElastiCache Valkey | Redis container |
