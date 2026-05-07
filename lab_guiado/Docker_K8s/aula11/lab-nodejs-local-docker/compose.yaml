@@ -1,0 +1,132 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: labnodejs-local-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    networks:
+      - labnodejs-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: labnodejs-local-redis
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - labnodejs-local-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: labnodejs-local-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - labnodejs-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    mem_limit: 1g
+    restart: unless-stopped
+
+  media-seeder:
+    image: busybox:1.36.1
+    container_name: labnodejs-local-media-seeder
+    command: sh -c "mkdir -p /media/products && cp -av /seed-media/* /media/products/ && ls -lah /media/products"
+    volumes:
+      - ./media:/seed-media:ro
+      - media-data:/media
+    networks:
+      - labnodejs-local-net
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/node/Dockerfile
+    image: labnodejs-local-app:1.0
+    container_name: labnodejs-local-app
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      NODE_ENV: ${NODE_ENV:-production}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      CACHE_HOST: redis
+      CACHE_PORT: "6379"
+      CACHE_TLS: "false"
+      ELASTICSEARCH_ENDPOINT: http://elasticsearch:9200
+      MEDIA_DIR: /app/public/media
+    ports:
+      - "${APP_PORT:-8080}:3000"
+    volumes:
+      - media-data:/app/public/media
+    networks:
+      - labnodejs-local-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      media-seeder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    cpus: "1.0"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  labnodejs-local-net:
+    name: labnodejs-local-net
+
+volumes:
+  mysql-data:
+    name: labnodejs-local-mysql-data
+  redis-data:
+    name: labnodejs-local-redis-data
+  elasticsearch-data:
+    name: labnodejs-local-elasticsearch-data
+  media-data:
+    name: labnodejs-local-media-data

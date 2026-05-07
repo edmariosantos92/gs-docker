@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.2.5
+    image: traefik:v3.6.16
     container_name: labnodejs-traefik
     command:
       - --providers.docker=true
