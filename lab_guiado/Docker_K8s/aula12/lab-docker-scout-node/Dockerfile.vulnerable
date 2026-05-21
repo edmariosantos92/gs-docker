@@ -2,7 +2,7 @@
 # Imagem propositalmente antiga para fins didáticos.
 # A ideia é gerar uma imagem com base image antiga para o Docker Scout apontar CVEs e recomendações.
 
-ARG NODE_BASE_IMAGE=node:16-alpine
+ARG NODE_BASE_IMAGE=node:16-alpine3.11
 FROM ${NODE_BASE_IMAGE}
 
 LABEL org.opencontainers.image.title="lab-docker-scout-node-vulnerable" \
