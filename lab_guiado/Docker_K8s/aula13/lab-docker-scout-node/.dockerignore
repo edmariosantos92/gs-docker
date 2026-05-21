@@ -1,0 +1,14 @@
+.git
+.gitignore
+README.md
+docs
+reports
+scripts
+node_modules
+npm-debug.log
+Dockerfile.*
+docker-compose.yml
+Makefile
+*.zip
+.env
+.DS_Store

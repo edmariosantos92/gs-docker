@@ -1,0 +1,33 @@
+# LAB Docker Scout
+# Imagem propositalmente antiga para fins didáticos.
+# A ideia é gerar uma imagem com base image antiga para o Docker Scout apontar CVEs e recomendações.
+
+ARG NODE_BASE_IMAGE=node:16-alpine
+FROM ${NODE_BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="lab-docker-scout-node-vulnerable" \
+      org.opencontainers.image.description="Imagem antiga para demonstrar Docker Scout" \
+      org.opencontainers.image.version="node16-lab" \
+      org.opencontainers.image.source="lab-docker-scout-node"
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    APP_NAME="Lab Docker Scout - Node antigo" \
+    APP_VERSION="1.0.0" \
+    RUNTIME_PROFILE="base-image-antiga"
+
+COPY package.json ./
+COPY src ./src
+
+RUN chown -R node:node /app
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+CMD ["node", "src/server.js"]
