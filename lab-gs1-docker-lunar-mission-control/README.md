@@ -92,20 +92,70 @@ Internet
 
 ---
 
-## Item Plus: Verificação de CVEs com Trivy
+## Itens Plus
 
-O arquivo [docker-compose.scan.yml](docker-compose.scan.yml) executa o scanner [Trivy](https://trivy.dev) da Aqua Security contra a imagem construída.
+### 1. Vulnerabilidade — CVE Scanning com Trivy
+
+O arquivo [docker-compose.scan.yml](docker-compose.scan.yml) executa o scanner [Trivy](https://trivy.dev) da Aqua Security contra a imagem construída, reportando CVEs de severidade **HIGH** e **CRITICAL**.
 
 ```bash
-# Construir a imagem e escanear CVEs HIGH e CRITICAL
+# Buildar imagem e escanear
 make scan
 
-# Ou manualmente:
-docker compose build
-docker compose -f docker-compose.scan.yml run --rm trivy-scan
+# Relatório salvo em:
+trivy-results/trivy-report.txt
 ```
 
-O relatório é salvo em `trivy-results/trivy-report.txt`.
+---
+
+### 2. Observabilidade — Prometheus + Grafana + cAdvisor
+
+Stack de monitoramento completa no arquivo [docker-compose.observability.yml](docker-compose.observability.yml).
+
+| Serviço    | Imagem                          | Função                              | Porta |
+|------------|---------------------------------|-------------------------------------|-------|
+| cadvisor   | gcr.io/cadvisor/cadvisor:v0.49.1| Métricas de CPU/RAM de containers   | -     |
+| prometheus | prom/prometheus:v2.51.2         | Coleta e armazena métricas          | 9090  |
+| grafana    | grafana/grafana:10.4.2          | Dashboards de visualização          | 3001  |
+
+```bash
+# Subir observabilidade (stack principal deve estar rodando)
+make obs-up
+
+# Acessar
+# Prometheus : http://IP_EC2:9090
+# Grafana    : http://IP_EC2:3001  → admin / LunarGrafana@2025
+
+# Parar
+make obs-down
+```
+
+No Grafana, importe o dashboard **cAdvisor** (ID `14282`) para visualizar métricas de todos os containers da stack lunar em tempo real.
+
+---
+
+### 3. Image Registry — AWS ECR
+
+Publicação da imagem no **Elastic Container Registry (ECR)** da AWS.
+
+**Pré-requisito:** configurar `AWS_ACCOUNT_ID` e `AWS_REGION` no `.env` e ter o AWS CLI configurado na EC2 com permissões ECR.
+
+```bash
+# 1. Criar o repositório no ECR (só na primeira vez)
+make ecr-create-repo
+
+# 2. Buildar, autenticar e publicar
+make ecr-push
+
+# Imagem publicada em:
+# <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/lunar-mission-control-app:1.0.0
+```
+
+Para usar a imagem do ECR na stack em vez do build local, substitua no `docker-compose.yml`:
+```yaml
+app:
+  image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/lunar-mission-control-app:1.0.0
+```
 
 ---
 
@@ -170,17 +220,31 @@ curl http://localhost
 ## Makefile — comandos disponíveis
 
 ```bash
-make up       # Sobe a stack (build + detached)
-make down     # Para e remove containers
-make build    # Rebuild forçado (--no-cache)
-make restart  # Reinicia todos os serviços
-make ps       # Lista containers e status
-make logs     # Tail dos logs de todos os serviços
-make stats    # docker stats ao vivo
-make health   # Chama /health e /ready
-make scan     # Build + scan CVE com Trivy
-make clean    # Down + remove volumes
-make prune    # docker system prune -a (CUIDADO)
+# Stack principal
+make up            # Sobe a stack (build + detached)
+make down          # Para e remove containers
+make build         # Rebuild forçado (--no-cache)
+make restart       # Reinicia todos os serviços
+make ps            # Lista containers e status
+make logs          # Tail dos logs de todos os serviços
+make stats         # docker stats ao vivo
+make health        # Chama /health e /ready
+
+# Item Plus: Observabilidade
+make obs-up        # Sobe Prometheus + Grafana + cAdvisor
+make obs-down      # Para a stack de observabilidade
+make obs-logs      # Logs da observabilidade
+
+# Item Plus: CVE Scanning
+make scan          # Build + scan CVE com Trivy
+
+# Item Plus: ECR
+make ecr-create-repo  # Cria repositório no ECR (primeira vez)
+make ecr-push         # Build + login AWS + tag + push para ECR
+
+# Cleanup
+make clean         # Down + remove volumes
+make prune         # docker system prune -a (CUIDADO)
 ```
 
 ---
@@ -189,20 +253,28 @@ make prune    # docker system prune -a (CUIDADO)
 
 ```
 .
-├── Dockerfile               # Multi-stage, alpine, non-root, healthcheck
-├── docker-compose.yml       # Stack de produção
-├── docker-compose.scan.yml  # CVE scan com Trivy
-├── .env                     # Credenciais (não commitar em repos públicos reais)
-├── .env.example             # Template de variáveis
-├── .dockerignore            # Exclui arquivos desnecessários da imagem
-├── Makefile                 # Atalhos para operações comuns
+├── Dockerfile                       # Multi-stage, alpine, non-root, healthcheck
+├── docker-compose.yml               # Stack de produção
+├── docker-compose.observability.yml # Item Plus: Prometheus + Grafana + cAdvisor
+├── docker-compose.scan.yml          # Item Plus: CVE scan com Trivy
+├── .env                             # Credenciais (não commitar em repos públicos reais)
+├── .env.example                     # Template de variáveis
+├── .dockerignore                    # Exclui arquivos desnecessários da imagem
+├── Makefile                         # Atalhos: up, obs-up, scan, ecr-push, stats...
 ├── nginx/
-│   └── default.conf         # Reverse proxy + gzip + rate limiting + security headers
+│   └── default.conf                 # Reverse proxy + gzip + rate limiting + security headers
+├── observability/
+│   ├── prometheus.yml               # Jobs de scraping (cAdvisor + health probes)
+│   └── grafana/
+│       ├── datasources/
+│       │   └── prometheus.yaml      # Auto-provisioning do datasource
+│       └── dashboards/
+│           └── dashboards.yaml      # Provider de dashboards
 ├── src/
-│   └── server.js            # Aplicação Node.js (não modificado)
-├── public/                  # Frontend estático
-├── media/                   # SVGs seedados no volume
-└── trivy-results/           # Relatórios de CVE (gerado pelo scan)
+│   └── server.js                    # Aplicação Node.js (não modificado)
+├── public/                          # Frontend estático
+├── media/                           # SVGs seedados no volume
+└── trivy-results/                   # Relatórios de CVE (gerado pelo scan)
 ```
 
 ---

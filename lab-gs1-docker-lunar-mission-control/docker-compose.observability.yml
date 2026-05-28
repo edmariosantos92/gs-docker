@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Item Plus — Observabilidade
+# Prometheus + Grafana + cAdvisor
+#
+# Pré-requisito: stack principal deve estar rodando (make up)
+# Uso: docker compose -f docker-compose.observability.yml up -d
+#      ou: make obs-up
+#
+# Acesso:
+#   Prometheus : http://IP_EC2:9090
+#   Grafana    : http://IP_EC2:3001  (admin / LunarGrafana@2025)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── cAdvisor: métricas de CPU/memória/rede de cada container ─────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: lunar-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - lunar-internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  # ── Prometheus: coleta e armazena métricas ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: lunar-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - lunar_prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - lunar-internal
+    depends_on:
+      - cadvisor
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ── Grafana: dashboards de visualização ──────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: lunar-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-LunarGrafana@2025}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:3001/"
+    volumes:
+      - lunar_grafana_data:/var/lib/grafana
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - lunar-internal
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+volumes:
+  lunar_prometheus_data:
+    driver: local
+  lunar_grafana_data:
+    driver: local
+
+networks:
+  lunar-internal:
+    external: true
+    name: lunar-network
