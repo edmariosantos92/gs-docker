@@ -1,0 +1,64 @@
+services:
+  init-media:
+    image: busybox:latest
+    container_name: lunar-init-media
+    volumes:
+      - lunar_media_data:/media
+      - ./media:/seed-media:ro
+    command: sh -c "mkdir -p /media && cp -r /seed-media/. /media/ && chmod -R 755 /media && ls -lah /media"
+
+  mysql:
+    image: mysql:latest
+    container_name: lunar-mysql
+    environment:
+      MYSQL_DATABASE: lunar_mission
+      MYSQL_USER: lunar_user
+      MYSQL_PASSWORD: lunarpass
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:latest
+    container_name: lunar-redis
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    image: lunar-mission-control-app:latest
+    container_name: lunar-app
+    environment:
+      APP_PORT: 3000
+      APP_ENV: development
+      MISSION_NAME: Artemis FIAP Lunar Base
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: lunar_user
+      DB_PASSWORD: lunarpass
+      DB_NAME: lunar_mission
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3000:3000"
+    volumes:
+      - lunar_media_data:/app/public/media
+    depends_on:
+      - mysql
+      - redis
+      - init-media
+
+  nginx:
+    image: nginx:latest
+    container_name: lunar-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - lunar_media_data:/usr/share/nginx/html/media:ro
+    depends_on:
+      - app
+      - init-media
+
+volumes:
+  lunar_media_data:
