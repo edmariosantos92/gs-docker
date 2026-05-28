@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CVE Vulnerability Scanner — Trivy (Aqua Security)
+#
+# Usage (after building the app image):
+#   docker compose -f docker-compose.scan.yml run --rm trivy-scan
+#
+# The report is written to ./trivy-results/trivy-report.txt
+# An exit code of 1 means HIGH/CRITICAL CVEs were found.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  trivy-scan:
+    image: aquasec/trivy:latest
+    container_name: lunar-trivy-scan
+    volumes:
+      # Mount Docker socket so Trivy can inspect local images
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Output directory for the report
+      - ./trivy-results:/results
+    command: >
+      image
+        --exit-code 1
+        --severity HIGH,CRITICAL
+        --format table
+        --output /results/trivy-report.txt
+        --timeout 5m
+        lunar-mission-control-app:1.0.0
+    # Not part of the normal stack — only run explicitly
+    profiles:
+      - scan

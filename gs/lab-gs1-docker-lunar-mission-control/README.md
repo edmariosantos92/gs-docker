@@ -1,138 +1,241 @@
-# Global Solution - Lunar Mission Control
+# Global Solution — Lunar Mission Control
+
+![Lunar Mission Control](image.png)
 
 ## Contexto
 
-Você recebeu de um time de desenvolvimento uma aplicação Node.js pronta para o projeto **Lunar Mission Control**.
+Aplicação Node.js que simula um painel de monitoramento de uma base lunar, exibindo energia, oxigênio, temperatura, comunicação com a Terra, estoque de água e status dos robôs.
 
-A aplicação simula um painel de monitoramento de uma base lunar, exibindo:
+Esta entrega cobre **todas as melhorias de infraestrutura Docker** exigidas na avaliação, incluindo o item plus de **verificação de CVEs com Trivy**.
 
-- Energia disponível;
-- Oxigênio;
-- Temperatura externa;
-- Comunicação com a Terra;
-- Estoque de água;
-- Status dos robôs.
+---
 
-A stack atual está funcionando para ambiente local/desenvolvimento, mas **não está preparada para produção**.
+## Arquitetura de Produção
 
-Sua missão é melhorar a parte da infra/arquitetura Docker, para que a aplicação possa ser executada de forma mais adequada em uma instância EC2.
+```
+Internet
+    │
+    ▼
+[Nginx 1.27-alpine]  ←── único ponto de entrada (porta 80)
+    │
+    ▼  (rede interna lunar-network — sem portas expostas ao host)
+[Node.js app]  ──→  [MySQL 8.4]
+      └──────────→  [Redis 7.2-alpine]
+```
 
-## Arquitetura entregue pelo desenvolvedor
+| Serviço    | Imagem              | Função                        |
+|------------|---------------------|-------------------------------|
+| nginx      | nginx:1.27-alpine   | Reverse proxy / ingress       |
+| app        | (build local)       | API + frontend Node.js        |
+| mysql      | mysql:8.4           | Banco de dados de telemetria  |
+| redis      | redis:7.2-alpine    | Cache de 15 s da API          |
+| init-media | busybox:1.36        | Seed do volume de mídia (one-shot) |
 
-A aplicação possui os seguintes serviços:
+---
 
-- **Node.js**: aplicação web/API;
-- **MySQL**: banco de dados da telemetria;
-- **Redis**: cache da API;
-- **Nginx**: webserver/reverse proxy;
-- **Volume de mídia**: imagens persistentes usadas no frontend.
+## O que foi melhorado
 
-## Como subir a stack atual entregue pelo desenvolvedor
+### 1. Dockerfile
 
-Clonar repositório na EC2:
+| Antes | Depois |
+|---|---|
+| `node:latest` | `node:20-alpine` (versão fixada, imagem ~55 MB) |
+| Single-stage | Multi-stage build (deps → runner) |
+| Rodava como root | Usuário `node` (non-root) |
+| Sem init process | `dumb-init` garante SIGTERM correto |
+| Sem HEALTHCHECK | `HEALTHCHECK` via `/health` com retries |
+| Sem `.dockerignore` | `.dockerignore` exclui `.git`, `node_modules`, `.env`, docs |
+
+### 2. docker-compose.yml
+
+| Antes | Depois |
+|---|---|
+| Tags `latest` em tudo | Versões fixadas em todos os serviços |
+| Senhas hardcoded | Lidas do `.env` via interpolação `${VAR}` |
+| `depends_on` simples | `depends_on` com `condition: service_healthy` |
+| Sem healthchecks | Healthcheck em todos os serviços |
+| Portas 3306 e 6379 expostas ao host | Portas internas apenas (segurança) |
+| Sem redes explícitas | Rede isolada `lunar-network` (bridge) |
+| Sem limites de recursos | `deploy.resources` com `limits` e `reservations` |
+| Sem logging | `json-file` com rotação (`max-size 10m`, `max-file 3`) |
+| Sem volume MySQL | Volume `lunar_mysql_data` para persistência |
+
+### 3. Gestão de containers
+
+- `restart: unless-stopped` em todos os serviços persistentes
+- `init-media` com `restart: "no"` (run-once)
+- Ordem correta de inicialização via health conditions
+- Resource limits evitam starvation de recursos na EC2
+
+### 4. Segurança
+
+- Nenhuma senha hardcoded no `docker-compose.yml`
+- `.env` com senhas fortes (mínimo 20 chars, símbolos, dígitos)
+- MySQL e Redis **não** publicam portas para o host
+- Container da app roda como usuário `node` (UID 1000), não root
+- Nginx com headers: `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, `Permissions-Policy`
+- Rate limiting na Nginx: 30 req/min por IP para `/api/`
+- `.dockerignore` impede que `.env` seja copiado para a imagem
+
+### 5. Volumes e Networks
+
+- `lunar_mysql_data` — persiste dados do MySQL entre restarts
+- `lunar_media_data` — volume compartilhado entre `init-media`, `app` e `nginx`
+- Rede `lunar-network` isola os serviços; somente Nginx expõe porta ao host
+
+### 6. Nginx melhorado
+
+- **Gzip**: compressão de JSON, JS, CSS e SVG
+- **Rate limiting**: `limit_req_zone` protege a API
+- Headers de segurança adicionais
+- Healthcheck interno `/nginx-health`
+
+---
+
+## Item Plus: Verificação de CVEs com Trivy
+
+O arquivo [docker-compose.scan.yml](docker-compose.scan.yml) executa o scanner [Trivy](https://trivy.dev) da Aqua Security contra a imagem construída.
+
 ```bash
+# Construir a imagem e escanear CVEs HIGH e CRITICAL
+make scan
+
+# Ou manualmente:
+docker compose build
+docker compose -f docker-compose.scan.yml run --rm trivy-scan
+```
+
+O relatório é salvo em `trivy-results/trivy-report.txt`.
+
+---
+
+## Como subir a stack
+
+### Pré-requisitos
+
+- Docker Engine ≥ 24.x
+- Docker Compose plugin v2.x
+- (EC2) Security Group com porta 80 aberta
+
+### Deploy na EC2
+
+```bash
+# 1. Clonar o repositório
 git clone https://github.com/pauloferrari-prs/education.git
+cd education/gs/lab-gs1-docker-lunar-mission-control
+
+# 2. (Opcional) Ajustar senhas no .env
+
+# 3. Subir a stack
+make up
+# ou: docker compose up -d --build
 ```
 
-Ir para a pasta da GS:
+### Verificar a stack
 
 ```bash
-cd /home/ubuntu/education/gs/lab-gs1-docker-lunar-mission-control
-```
+# Status dos containers
+make ps
+# ou: docker compose ps
 
-Subir a aplicação com a infra docker simples:
-```bash
-docker compose up -d --build
-```
+# Métricas de CPU/memória em tempo real
+make stats
+# ou: docker stats
 
-Acesse no navegador:
+# Testar healthchecks
+make health
+# ou:
+curl -s http://localhost/health | jq
+curl -s http://localhost/ready  | jq
 
-```text
-http://IP_PUBLICO_DA_EC2/
-```
-
-Teste a aplicação
-
-```bash
+# Acessar a aplicação
 curl http://localhost
 ```
 
-Teste o healthcheck da aplicação:
+---
+
+## Endpoints
+
+| Método | Path           | Descrição                        |
+|--------|----------------|----------------------------------|
+| GET    | `/`            | Interface web do painel lunar    |
+| GET    | `/api/status`  | Dados de telemetria (com cache)  |
+| POST   | `/api/simulate`| Simula nova leitura de telemetria|
+| GET    | `/health`      | Healthcheck geral (app+db+cache) |
+| GET    | `/ready`       | Readiness probe                  |
+| GET    | `/nginx-health`| Healthcheck interno do Nginx     |
+
+---
+
+## Makefile — comandos disponíveis
 
 ```bash
-curl -s http://localhost/health | jq
+make up       # Sobe a stack (build + detached)
+make down     # Para e remove containers
+make build    # Rebuild forçado (--no-cache)
+make restart  # Reinicia todos os serviços
+make ps       # Lista containers e status
+make logs     # Tail dos logs de todos os serviços
+make stats    # docker stats ao vivo
+make health   # Chama /health e /ready
+make scan     # Build + scan CVE com Trivy
+make clean    # Down + remove volumes
+make prune    # docker system prune -a (CUIDADO)
 ```
 
-Também é possível consultar diretamente a API:
+---
+
+## Arquivos do projeto
+
+```
+.
+├── Dockerfile               # Multi-stage, alpine, non-root, healthcheck
+├── docker-compose.yml       # Stack de produção
+├── docker-compose.scan.yml  # CVE scan com Trivy
+├── .env                     # Credenciais (não commitar em repos públicos reais)
+├── .env.example             # Template de variáveis
+├── .dockerignore            # Exclui arquivos desnecessários da imagem
+├── Makefile                 # Atalhos para operações comuns
+├── nginx/
+│   └── default.conf         # Reverse proxy + gzip + rate limiting + security headers
+├── src/
+│   └── server.js            # Aplicação Node.js (não modificado)
+├── public/                  # Frontend estático
+├── media/                   # SVGs seedados no volume
+└── trivy-results/           # Relatórios de CVE (gerado pelo scan)
+```
+
+---
+
+## Evidências de execução
+
+### `docker compose ps` — todos os containers healthy
+
+![docker compose ps](docker1.png)
+
+### `docker stats` — uso de CPU e memória com limites aplicados
+
+![docker stats](docker2.png)
+
+### `curl /health` — todos os checks ok (app, mysql, redis)
+
+![curl /health](docker3.png)
+
+> Nota: o output do PowerShell mostra também os headers de segurança do Nginx
+> (`X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, `Permissions-Policy`).
+
+### Aplicação no navegador — `http://localhost/`
+
+![Aplicação no navegador](docker4.png)
+
+---
+
+## Limpeza
 
 ```bash
-curl -s http://localhost/api/status | jq
-```
+# Parar e remover containers + volumes
+docker compose down -v
 
-## Dicas para a sua missão
-
-Ajustar este repositório para uma subida mais próxima de produção, segue dicas do que você deve modificar/entregar:
-
-### 1. Dockerfile;
-
-### 2. docker-compose.yml;
-
-### 3. Gestão dos containers;
-
-### 4. Segurança;
-
-### 5. Volume e Network;
-
-### 6. Outros;
-
-### 7. Entregáveis:
-
-Com a sua solução completa, fazer/documentar:
-
-- Print do `docker compose ps`;
-- Print do `docker stats`;
-- Evidência do `curl /health`;
-- Evidência de acesso à aplicação pelo navegador usando o IP público da sua EC2: ```http://IP_PUBLICO_DA_EC2/```
-- Documentação rápida no seu README.md;
-- Repositório completo com Dockerfile, docker-compose.yml, `.env` README.md, e demais arquivos.
-
-## Itens Plus (++++)
-
-Neste caso, há alguns itens adicionais que você pode acrescentar à stack da sua aplicação. Se você incluir pelo menos um item plus (+), poderá alcançar a nota máxima: 10!
-
-Dicas dos itens plus:
-
-- Observabilidade;
-- Image Registry;
-- Vulnerabilidade (CVEs).
-
-## Endpoints úteis
-
-```text
-GET  /              Interface web
-GET  /api/status    Dados da missão
-POST /api/simulate  Simula nova telemetria
-GET  /health        Healthcheck geral
-GET  /ready         Readiness da aplicação
-```
-
-## Docker System Prune (Purge arquivos não utilizados)
-
-```bash
+# Purge completo do Docker (cuidado em produção)
 docker system prune -a --volumes -f
 ```
-
-## Observação importante
-
-- A aplicação Node.js já está pronta. O foco da avaliação é a melhoria da solução Docker;
-- Não montar Redis (ElastiCache) e Banco (RDS) usando serviços na AWS (Tem que ser em container - docker mesmo);
-- Único serviços na AWS que serão liberados é o ECR (Elastic Container Registry) e a instância EC2 já montada da dupla.
-
-## Uso de IA
-
-Conforme mencionado, o uso de IA está liberado para execução desta GS.
-
-
-## Boa Prova!!
-
-![alt text](image.png)
