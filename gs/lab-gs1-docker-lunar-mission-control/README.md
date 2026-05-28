@@ -37,7 +37,7 @@ git clone https://github.com/pauloferrari-prs/education.git
 Ir para a pasta da GS:
 
 ```bash
-cd /home/ubuntu/education/gs/lab-gs-docker-lunar-mission-control
+cd /home/ubuntu/education/gs/lab-gs1-docker-lunar-mission-control
 ```
 
 Subir a aplicação com a infra docker simples:
